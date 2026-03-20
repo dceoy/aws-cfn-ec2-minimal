@@ -24,12 +24,19 @@ Parameters:
     AllowedPattern: ^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$
     ConstraintDescription: Must be a valid CIDR block (e.g. 10.0.0.0/16).
 
-  Ec2SubnetCidrBlock:
-    Description: IPv4 CIDR block for the public subnet
+  Ec2PublicSubnetCidrBlock:
+    Description: IPv4 CIDR block for the public subnet (hosts the NAT Gateway)
     Type: String
     Default: 10.0.0.0/24
     AllowedPattern: ^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$
     ConstraintDescription: Must be a valid CIDR block (e.g. 10.0.0.0/24).
+
+  Ec2SubnetCidrBlock:
+    Description: IPv4 CIDR block for the private subnet (hosts the EC2 instance)
+    Type: String
+    Default: 10.0.1.0/24
+    AllowedPattern: ^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$
+    ConstraintDescription: Must be a valid CIDR block (e.g. 10.0.1.0/24).
 
   Ec2InstanceType:
     Description: EC2 instance type
@@ -96,6 +103,27 @@ Resources:
       VpcId: !Ref Ec2Vpc
       AmazonProvidedIpv6CidrBlock: true
 
+  Ec2PublicSubnet:
+    Type: AWS::EC2::Subnet
+    DependsOn: Ec2Ipv6CidrBlock
+    Properties:
+      VpcId: !Ref Ec2Vpc
+      CidrBlock: !Ref Ec2PublicSubnetCidrBlock
+      Ipv6CidrBlock: !Select
+        - 0
+        - !Cidr
+          - !Select [0, !GetAtt Ec2Vpc.Ipv6CidrBlocks]
+          - 256
+          - 64
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${EnvType}-ec2-public-subnet"
+        - Key: SystemName
+          Value: !Ref SystemName
+        - Key: EnvType
+          Value: !Ref EnvType
+
   Ec2Subnet:
     Type: AWS::EC2::Subnet
     DependsOn: Ec2Ipv6CidrBlock
@@ -103,12 +131,15 @@ Resources:
       VpcId: !Ref Ec2Vpc
       CidrBlock: !Ref Ec2SubnetCidrBlock
       Ipv6CidrBlock: !Select
-        - 0
-        - !GetAtt Ec2Vpc.Ipv6CidrBlocks
-      MapPublicIpOnLaunch: true
+        - 1
+        - !Cidr
+          - !Select [0, !GetAtt Ec2Vpc.Ipv6CidrBlocks]
+          - 256
+          - 64
+      MapPublicIpOnLaunch: false
       Tags:
         - Key: Name
-          Value: !Sub "${SystemName}-${EnvType}-ec2-subnet"
+          Value: !Sub "${SystemName}-${EnvType}-ec2-private-subnet"
         - Key: SystemName
           Value: !Ref SystemName
         - Key: EnvType
@@ -136,13 +167,72 @@ Resources:
     Properties:
       VpcId: !Ref Ec2Vpc
 
+  Ec2NatGatewayEip:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${EnvType}-ec2-nat-eip"
+        - Key: SystemName
+          Value: !Ref SystemName
+        - Key: EnvType
+          Value: !Ref EnvType
+
+  Ec2NatGateway:
+    Type: AWS::EC2::NatGateway
+    DependsOn: Ec2VpcGatewayAttachment
+    Properties:
+      SubnetId: !Ref Ec2PublicSubnet
+      AllocationId: !GetAtt Ec2NatGatewayEip.AllocationId
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${EnvType}-ec2-nat"
+        - Key: SystemName
+          Value: !Ref SystemName
+        - Key: EnvType
+          Value: !Ref EnvType
+
+  Ec2PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Ec2Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${EnvType}-ec2-public-rtb"
+        - Key: SystemName
+          Value: !Ref SystemName
+        - Key: EnvType
+          Value: !Ref EnvType
+
+  Ec2PublicRouteIpv4Default:
+    Type: AWS::EC2::Route
+    DependsOn: Ec2VpcGatewayAttachment
+    Properties:
+      RouteTableId: !Ref Ec2PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref Ec2InternetGateway
+
+  Ec2PublicRouteIpv6Default:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref Ec2PublicRouteTable
+      DestinationIpv6CidrBlock: ::/0
+      GatewayId: !Ref Ec2InternetGateway
+
+  Ec2PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Ec2PublicSubnet
+      RouteTableId: !Ref Ec2PublicRouteTable
+
   Ec2RouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref Ec2Vpc
       Tags:
         - Key: Name
-          Value: !Sub "${SystemName}-${EnvType}-ec2-rtb"
+          Value: !Sub "${SystemName}-${EnvType}-ec2-private-rtb"
         - Key: SystemName
           Value: !Ref SystemName
         - Key: EnvType
@@ -150,11 +240,10 @@ Resources:
 
   Ec2RouteIpv4Default:
     Type: AWS::EC2::Route
-    DependsOn: Ec2VpcGatewayAttachment
     Properties:
       RouteTableId: !Ref Ec2RouteTable
       DestinationCidrBlock: 0.0.0.0/0
-      GatewayId: !Ref Ec2InternetGateway
+      NatGatewayId: !Ref Ec2NatGateway
 
   Ec2RouteIpv6Default:
     Type: AWS::EC2::Route
@@ -224,7 +313,7 @@ Resources:
       NetworkInterfaces:
         - DeviceIndex: 0
           SubnetId: !Ref Ec2Subnet
-          AssociatePublicIpAddress: true
+          AssociatePublicIpAddress: false
           GroupSet:
             - !Ref Ec2SecurityGroup
       BlockDeviceMappings:
@@ -326,8 +415,12 @@ Outputs:
     Description: VPC ID
     Value: !Ref Ec2Vpc
 
+  Ec2PublicSubnetId:
+    Description: Public subnet ID (NAT Gateway)
+    Value: !Ref Ec2PublicSubnet
+
   Ec2SubnetId:
-    Description: Subnet ID
+    Description: Private subnet ID (EC2 instance)
     Value: !Ref Ec2Subnet
 
   Ec2InstanceId:
@@ -337,10 +430,6 @@ Outputs:
   Ec2PrivateIp:
     Description: Private IP address of the instance
     Value: !GetAtt Ec2Instance.PrivateIp
-
-  Ec2PublicIp:
-    Description: Public IP address of the instance
-    Value: !GetAtt Ec2Instance.PublicIp
 
   Ec2SecurityGroupId:
     Description: Security group ID
@@ -353,3 +442,11 @@ Outputs:
   Ec2EgressOnlyInternetGatewayId:
     Description: Egress-only internet gateway ID
     Value: !Ref Ec2EgressOnlyInternetGateway
+
+  Ec2NatGatewayId:
+    Description: NAT Gateway ID
+    Value: !Ref Ec2NatGateway
+
+  Ec2NatGatewayEip:
+    Description: Elastic IP address of the NAT Gateway
+    Value: !Ref Ec2NatGatewayEip
