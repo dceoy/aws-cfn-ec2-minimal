@@ -2,9 +2,9 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: >-
   CloudFormation template to launch a Windows Server EC2 instance for
-  MetaTrader 5.  The instance is accessible via RDP (TCP 3389) from a
-  configurable CIDR block and installs MetaTrader 5 automatically on
-  first boot using a PowerShell UserData script.
+  MetaTrader 5.  The instance is accessible via AWS Systems Manager
+  Session Manager and installs MetaTrader 5 automatically on first
+  boot using a PowerShell UserData script.
 
 Parameters:
   SystemName:
@@ -54,22 +54,6 @@ Parameters:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-windows-latest/Windows_Server-2022-English-Full-Base
 
-  Ec2KeyPairName:
-    Description: >-
-      Name of an existing EC2 key pair used to decrypt the initial Windows
-      Administrator password for RDP login.  Required — without it the
-      password cannot be retrieved from the EC2 console.
-    Type: AWS::EC2::KeyPair::KeyName
-
-  Ec2RdpCidr:
-    Description: >-
-      CIDR block allowed to connect via RDP.  Must be restricted to your
-      own IP address (e.g. 203.0.113.1/32).  No default is provided
-      intentionally — supply a specific CIDR to limit exposure.
-    Type: String
-    AllowedPattern: ^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$
-    ConstraintDescription: Must be a valid CIDR block (e.g. 203.0.113.1/32).
-
   Ec2VolumeSize:
     Description: Root EBS volume size in GiB
     Type: Number
@@ -86,31 +70,67 @@ Parameters:
       - gp2
 
 Resources:
+  Ec2InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${EnvType}-ec2-igw"
+        - Key: SystemName
+          Value: !Ref SystemName
+        - Key: EnvType
+          Value: !Ref EnvType
+
+  Ec2VpcGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Ec2VpcId
+      InternetGatewayId: !Ref Ec2InternetGateway
+
   Ec2EgressOnlyInternetGateway:
     Type: AWS::EC2::EgressOnlyInternetGateway
     Properties:
       VpcId: !Ref Ec2VpcId
 
+  Ec2RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Ec2VpcId
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${EnvType}-ec2-rtb"
+        - Key: SystemName
+          Value: !Ref SystemName
+        - Key: EnvType
+          Value: !Ref EnvType
+
+  Ec2RouteIpv4Default:
+    Type: AWS::EC2::Route
+    DependsOn: Ec2VpcGatewayAttachment
+    Properties:
+      RouteTableId: !Ref Ec2RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref Ec2InternetGateway
+
+  Ec2RouteIpv6Default:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref Ec2RouteTable
+      DestinationIpv6CidrBlock: ::/0
+      EgressOnlyInternetGatewayId: !Ref Ec2EgressOnlyInternetGateway
+
+  Ec2SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Ec2SubnetId
+      RouteTableId: !Ref Ec2RouteTable
+
   Ec2SecurityGroup:
     Type: AWS::EC2::SecurityGroup
-    Metadata:
-      checkov:
-        skip:
-          - id: CKV_AWS_25
-            comment: >-
-              RDP access is restricted via the Ec2RdpCidr parameter, which has
-              no insecure default.  Static analysis cannot evaluate runtime
-              parameter values.
     Properties:
       GroupName: !Sub "${SystemName}-${EnvType}-ec2-sg"
-      GroupDescription: !Sub "${SystemName}-${EnvType} - Allow RDP access"
+      GroupDescription: !Sub "${SystemName}-${EnvType} - EC2 instance security group"
       VpcId: !Ref Ec2VpcId
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 3389
-          ToPort: 3389
-          CidrIp: !Ref Ec2RdpCidr
-          Description: RDP access
       Tags:
         - Key: Name
           Value: !Sub "${SystemName}-${EnvType}-ec2-sg"
@@ -149,17 +169,20 @@ Resources:
 
   Ec2Instance:
     Type: AWS::EC2::Instance
+    DependsOn: Ec2RouteIpv4Default
     Properties:
       ImageId: !Ref Ec2WindowsAmiId
       InstanceType: !Ref Ec2InstanceType
-      SubnetId: !Ref Ec2SubnetId
-      SecurityGroupIds:
-        - !Ref Ec2SecurityGroup
       IamInstanceProfile: !Ref IamInstanceProfile
-      KeyName: !Ref Ec2KeyPairName
       MetadataOptions:
         HttpTokens: required
         HttpEndpoint: enabled
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref Ec2SubnetId
+          AssociatePublicIpAddress: true
+          GroupSet:
+            - !Ref Ec2SecurityGroup
       BlockDeviceMappings:
         - DeviceName: /dev/sda1
           Ebs:
@@ -264,14 +287,16 @@ Outputs:
     Value: !GetAtt Ec2Instance.PrivateIp
 
   Ec2PublicIp:
-    Description: >-
-      Public IP address of the instance (empty if the subnet does not
-      assign public IPs)
+    Description: Public IP address of the instance
     Value: !GetAtt Ec2Instance.PublicIp
 
   Ec2SecurityGroupId:
     Description: Security group ID
     Value: !Ref Ec2SecurityGroup
+
+  Ec2InternetGatewayId:
+    Description: Internet gateway ID
+    Value: !Ref Ec2InternetGateway
 
   Ec2EgressOnlyInternetGatewayId:
     Description: Egress-only internet gateway ID
