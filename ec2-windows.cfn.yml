@@ -7,20 +7,25 @@ Description: >-
   first boot using a PowerShell UserData script.
 
 Parameters:
-  ProjectName:
-    Description: Project name used for resource tagging
+  SystemName:
+    Description: System name used for resource naming and tagging
     Type: String
-    Default: mt5
+    Default: win
 
-  VpcId:
+  EnvType:
+    Description: Environment type used for resource naming and tagging
+    Type: String
+    Default: dev
+
+  Ec2VpcId:
     Description: VPC ID where the instance will be launched
     Type: AWS::EC2::VPC::Id
 
-  SubnetId:
+  Ec2SubnetId:
     Description: Subnet ID for the instance
     Type: AWS::EC2::Subnet::Id
 
-  InstanceType:
+  Ec2InstanceType:
     Description: EC2 instance type
     Type: String
     Default: t3.large
@@ -42,21 +47,21 @@ Parameters:
       - c6i.xlarge
       - c6i.2xlarge
 
-  WindowsAmiId:
+  Ec2WindowsAmiId:
     Description: >-
       SSM parameter path for the Windows Server AMI ID.  Defaults to
       the latest Windows Server 2022 English Full Base AMI.
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-windows-latest/Windows_Server-2022-English-Full-Base
 
-  KeyPairName:
+  Ec2KeyPairName:
     Description: >-
       Name of an existing EC2 key pair used to decrypt the initial Windows
       Administrator password for RDP login.  Required — without it the
       password cannot be retrieved from the EC2 console.
     Type: AWS::EC2::KeyPair::KeyName
 
-  RdpCidr:
+  Ec2RdpCidr:
     Description: >-
       CIDR block allowed to connect via RDP.  Must be restricted to your
       own IP address (e.g. 203.0.113.1/32).  No default is provided
@@ -65,14 +70,14 @@ Parameters:
     AllowedPattern: ^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$
     ConstraintDescription: Must be a valid CIDR block (e.g. 203.0.113.1/32).
 
-  VolumeSize:
+  Ec2VolumeSize:
     Description: Root EBS volume size in GiB
     Type: Number
     Default: 100
     MinValue: 50
     MaxValue: 1000
 
-  VolumeType:
+  Ec2VolumeType:
     Description: Root EBS volume type (io1/io2 are omitted; they require Iops)
     Type: String
     Default: gp3
@@ -81,34 +86,43 @@ Parameters:
       - gp2
 
 Resources:
-  SecurityGroup:
+  Ec2EgressOnlyInternetGateway:
+    Type: AWS::EC2::EgressOnlyInternetGateway
+    Properties:
+      VpcId: !Ref Ec2VpcId
+
+  Ec2SecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Metadata:
       checkov:
         skip:
           - id: CKV_AWS_25
             comment: >-
-              RDP access is restricted via the RdpCidr parameter, which has
+              RDP access is restricted via the Ec2RdpCidr parameter, which has
               no insecure default.  Static analysis cannot evaluate runtime
               parameter values.
     Properties:
-      GroupDescription: !Sub "${ProjectName} - Allow RDP access"
-      VpcId: !Ref VpcId
+      GroupName: !Sub "${SystemName}-${EnvType}-ec2-sg"
+      GroupDescription: !Sub "${SystemName}-${EnvType} - Allow RDP access"
+      VpcId: !Ref Ec2VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 3389
           ToPort: 3389
-          CidrIp: !Ref RdpCidr
+          CidrIp: !Ref Ec2RdpCidr
           Description: RDP access
       Tags:
         - Key: Name
-          Value: !Sub "${ProjectName}-sg"
-        - Key: Project
-          Value: !Ref ProjectName
+          Value: !Sub "${SystemName}-${EnvType}-ec2-sg"
+        - Key: SystemName
+          Value: !Ref SystemName
+        - Key: EnvType
+          Value: !Ref EnvType
 
-  InstanceRole:
+  IamRole:
     Type: AWS::IAM::Role
     Properties:
+      RoleName: !Sub "${SystemName}-${EnvType}-iam-role"
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -118,31 +132,39 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${EnvType}-iam-role"
+        - Key: SystemName
+          Value: !Ref SystemName
+        - Key: EnvType
+          Value: !Ref EnvType
 
-  InstanceProfile:
+  IamInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
+      InstanceProfileName: !Sub "${SystemName}-${EnvType}-iam-instance-profile"
       Roles:
-        - !Ref InstanceRole
+        - !Ref IamRole
 
-  Instance:
+  Ec2Instance:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: !Ref WindowsAmiId
-      InstanceType: !Ref InstanceType
-      SubnetId: !Ref SubnetId
+      ImageId: !Ref Ec2WindowsAmiId
+      InstanceType: !Ref Ec2InstanceType
+      SubnetId: !Ref Ec2SubnetId
       SecurityGroupIds:
-        - !Ref SecurityGroup
-      IamInstanceProfile: !Ref InstanceProfile
-      KeyName: !Ref KeyPairName
+        - !Ref Ec2SecurityGroup
+      IamInstanceProfile: !Ref IamInstanceProfile
+      KeyName: !Ref Ec2KeyPairName
       MetadataOptions:
         HttpTokens: required
         HttpEndpoint: enabled
       BlockDeviceMappings:
         - DeviceName: /dev/sda1
           Ebs:
-            VolumeSize: !Ref VolumeSize
-            VolumeType: !Ref VolumeType
+            VolumeSize: !Ref Ec2VolumeSize
+            VolumeType: !Ref Ec2VolumeType
             Encrypted: true
       UserData:
         Fn::Base64: !Sub |
@@ -213,32 +235,38 @@ Resources:
           Remove-Item -Path $mt5Installer -Force -ErrorAction SilentlyContinue
 
           # Signal CloudFormation
-          cfn-signal.exe --exit-code $mt5ExitCode --stack ${AWS::StackName} --resource Instance --region ${AWS::Region}
+          cfn-signal.exe --exit-code $mt5ExitCode --stack ${AWS::StackName} --resource Ec2Instance --region ${AWS::Region}
           </powershell>
       Tags:
         - Key: Name
-          Value: !Sub "${ProjectName}-windows"
-        - Key: Project
-          Value: !Ref ProjectName
+          Value: !Sub "${SystemName}-${EnvType}-ec2-instance"
+        - Key: SystemName
+          Value: !Ref SystemName
+        - Key: EnvType
+          Value: !Ref EnvType
     CreationPolicy:
       ResourceSignal:
         Timeout: PT30M
 
 Outputs:
-  InstanceId:
+  Ec2InstanceId:
     Description: EC2 instance ID
-    Value: !Ref Instance
+    Value: !Ref Ec2Instance
 
-  PrivateIp:
+  Ec2PrivateIp:
     Description: Private IP address of the instance
-    Value: !GetAtt Instance.PrivateIp
+    Value: !GetAtt Ec2Instance.PrivateIp
 
-  PublicIp:
+  Ec2PublicIp:
     Description: >-
       Public IP address of the instance (empty if the subnet does not
       assign public IPs)
-    Value: !GetAtt Instance.PublicIp
+    Value: !GetAtt Ec2Instance.PublicIp
 
-  SecurityGroupId:
+  Ec2SecurityGroupId:
     Description: Security group ID
-    Value: !Ref SecurityGroup
+    Value: !Ref Ec2SecurityGroup
+
+  Ec2EgressOnlyInternetGatewayId:
+    Description: Egress-only internet gateway ID
+    Value: !Ref Ec2EgressOnlyInternetGateway
