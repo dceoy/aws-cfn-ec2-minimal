@@ -8,36 +8,36 @@ This repository provides a CloudFormation template that launches a Windows Serve
 
 ## Template
 
-| File | Description |
-|------|-------------|
-| `ec2-windows-mt5.cfn.yaml` | Windows Server 2022 EC2 instance with MetaTrader 5 |
+| File                  | Description                                        |
+| --------------------- | -------------------------------------------------- |
+| `ec2-windows.cfn.yml` | Windows Server 2022 EC2 instance with MetaTrader 5 |
 
 ## Parameters
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `ProjectName` | `mt5` | Project name used for resource tagging |
-| `VpcId` | *(required)* | VPC ID where the instance will be launched |
-| `SubnetId` | *(required)* | Subnet ID for the instance |
-| `InstanceType` | `t3.large` | EC2 instance type |
-| `WindowsAmiId` | Latest Windows Server 2022 | SSM parameter for the AMI ID |
-| `KeyPairName` | *(empty)* | EC2 key pair for password decryption |
-| `RdpCidr` | `0.0.0.0/0` | CIDR block allowed for RDP access |
-| `VolumeSize` | `100` | Root EBS volume size in GiB |
-| `VolumeType` | `gp3` | Root EBS volume type |
+| Parameter      | Default                    | Description                                |
+| -------------- | -------------------------- | ------------------------------------------ |
+| `ProjectName`  | `mt5`                      | Project name used for resource tagging     |
+| `VpcId`        | _(required)_               | VPC ID where the instance will be launched |
+| `SubnetId`     | _(required)_               | Subnet ID for the instance                 |
+| `InstanceType` | `t3.large`                 | EC2 instance type                          |
+| `WindowsAmiId` | Latest Windows Server 2022 | SSM parameter for the AMI ID               |
+| `KeyPairName`  | _(required)_               | EC2 key pair for password decryption       |
+| `RdpCidr`      | _(required)_               | CIDR block allowed for RDP access          |
+| `VolumeSize`   | `100`                      | Root EBS volume size in GiB                |
+| `VolumeType`   | `gp3`                      | Root EBS volume type                       |
 
 ## Usage
 
 ```bash
 aws cloudformation deploy \
-  --template-file ec2-windows-mt5.cfn.yaml \
+  --template-file ec2-windows.cfn.yml \
   --stack-name mt5-windows \
   --parameter-overrides \
     VpcId=vpc-xxxxxxxx \
     SubnetId=subnet-xxxxxxxx \
     KeyPairName=my-key-pair \
     RdpCidr=203.0.113.1/32 \
-  --capabilities CAPABILITY_NAMED_IAM
+  --capabilities CAPABILITY_IAM
 ```
 
 After the stack is created, retrieve the administrator password using the EC2 console or the AWS CLI:
