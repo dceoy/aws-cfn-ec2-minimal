@@ -2,7 +2,7 @@
 
 ## Overview
 
-The main deliverable is [`ec2.cfn.yml`](/Users/dceoy/util/aws-cfn-ec2-windows/ec2.cfn.yml), a CloudFormation template that provisions a Windows Server EC2 stack plus supporting VPC, subnet, routing, IAM, and Session Manager access.
+The main deliverable is [`ec2.cfn.yml`](/Users/dceoy/util/aws-cfn-ec2-minimal/ec2.cfn.yml), a CloudFormation template that provisions a Windows Server EC2 stack plus supporting VPC, subnet, routing, IAM, and Session Manager access.
 
 ## Deployment Instructions
 

@@ -1,4 +1,4 @@
-# aws-cfn-ec2-windows
+# aws-cfn-ec2-minimal
 
 AWS CloudFormation template for Windows Server on Amazon EC2
 
