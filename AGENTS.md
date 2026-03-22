@@ -9,7 +9,7 @@ The main deliverable is [`ec2.cfn.yml`](/Users/dceoy/util/aws-cfn-ec2-windows/ec
 Use the AWS CLI to deploy or update the stack:
 
 ```bash
-aws cloudformation deploy --template-file ec2.cfn.yml --stack-name ws-dev-ec2 --capabilities CAPABILITY_NAMED_IAM
+aws cloudformation deploy --template-file ec2.cfn.yml --stack-name fte-dev-ec2 --capabilities CAPABILITY_NAMED_IAM
 ```
 
 ## Code Quality & Validation
