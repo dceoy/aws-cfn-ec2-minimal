@@ -1,0 +1,48 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  CloudFormation template to create the IAM role and instance profile
+  for the Windows Server EC2 instance managed by the companion stacks.
+Parameters:
+  SystemName:
+    Description: System name used for resource naming and tagging
+    Type: String
+    Default: fte
+  EnvType:
+    Description: Environment type used for resource naming and tagging
+    Type: String
+    Default: dev
+Resources:
+  IamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${SystemName}-${EnvType}-iam-role"
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Name
+          Value: !Sub "${SystemName}-${EnvType}-iam-role"
+        - Key: SystemName
+          Value: !Ref SystemName
+        - Key: EnvType
+          Value: !Ref EnvType
+  IamInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub "${SystemName}-${EnvType}-iam-instance-profile"
+      Roles:
+        - !Ref IamRole
+Outputs:
+  Ec2IamInstanceProfileName:
+    Description: IAM instance profile name
+    Value: !Ref IamInstanceProfile
+  Ec2IamRoleName:
+    Description: IAM role name
+    Value: !Ref IamRole
