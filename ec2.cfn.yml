@@ -2,7 +2,7 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: >-
   CloudFormation template to launch a Windows Server EC2 instance
-  using existing networking resources and stack-managed IAM resources.
+  using existing networking resources and an existing IAM instance profile.
   The instance is accessible via AWS Systems Manager Session Manager
   and uses a PowerShell UserData script for first-boot bootstrap.
   A custom UserData script can optionally be supplied at deploy time.
@@ -21,6 +21,9 @@ Parameters:
   Ec2SecurityGroupId:
     Description: Existing security group ID for the EC2 instance
     Type: AWS::EC2::SecurityGroup::Id
+  Ec2IamInstanceProfileName:
+    Description: Existing IAM instance profile name from iam.cfn.yml
+    Type: String
   Ec2InstanceType:
     Description: EC2 instance type
     Type: String
@@ -65,32 +68,6 @@ Conditions:
           - !Ref Ec2UserData
           - ''
 Resources:
-  IamRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "${SystemName}-${EnvType}-iam-role"
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: ec2.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-      Tags:
-        - Key: Name
-          Value: !Sub "${SystemName}-${EnvType}-iam-role"
-        - Key: SystemName
-          Value: !Ref SystemName
-        - Key: EnvType
-          Value: !Ref EnvType
-  IamInstanceProfile:
-    Type: AWS::IAM::InstanceProfile
-    Properties:
-      InstanceProfileName: !Sub "${SystemName}-${EnvType}-iam-instance-profile"
-      Roles:
-        - !Ref IamRole
   # trivy:ignore:AWS-0028
   Ec2Instance:
     Type: AWS::EC2::Instance
@@ -104,7 +81,7 @@ Resources:
     Properties:
       ImageId: !Ref Ec2WindowsAmiId
       InstanceType: !Ref Ec2InstanceType
-      IamInstanceProfile: !Ref IamInstanceProfile
+      IamInstanceProfile: !Ref Ec2IamInstanceProfileName
       MetadataOptions:
         HttpTokens: required
         HttpEndpoint: enabled
@@ -222,12 +199,6 @@ Resources:
       ResourceSignal:
         Timeout: PT30M
 Outputs:
-  Ec2IamInstanceProfileName:
-    Description: IAM instance profile name
-    Value: !Ref IamInstanceProfile
-  Ec2IamRoleName:
-    Description: IAM role name
-    Value: !Ref IamRole
   Ec2InstanceId:
     Description: EC2 instance ID
     Value: !Ref Ec2Instance
