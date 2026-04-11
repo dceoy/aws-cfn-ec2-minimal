@@ -44,18 +44,20 @@ Parameters:
   Ec2InstanceType:
     Description: EC2 instance type
     Type: String
-    Default: m7g.large
-    # AllowedValues:  # The following instance types are compatible with the arm64 AMI.
+    Default: m7i-flex.large
+    # AllowedValues:  # The following instance types are free tier eligible.
     #   - t4g.micro
     #   - t4g.small
-    #   - c7g.large
-    #   - m7g.large
+    #   - t3.micro
+    #   - t3.small
+    #   - c7i-flex.large
+    #   - m7i-flex.large
   Ec2LinuxAmiId:
     Description: >-
-      SSM parameter path for the Amazon ECS-optimized Amazon Linux 2023 arm64 AMI ID.
-      Defaults to the latest recommended ECS-optimized Amazon Linux 2023 arm64 AMI.
+      SSM parameter path for the Amazon ECS-optimized Amazon Linux 2023 AMI ID.
+      Defaults to the latest recommended ECS-optimized Amazon Linux 2023 AMI.
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ecs/optimized-ami/amazon-linux-2023/arm64/recommended/image_id
+    Default: /aws/service/ecs/optimized-ami/amazon-linux-2023/recommended/image_id
   Ec2VolumeSize:
     Description: Root EBS volume size in GiB
     Type: Number
@@ -77,23 +79,8 @@ Parameters:
     Type: String
     Default: |
       #!/bin/bash
-      set -uox pipefail
-
-      user_data_exit_code=0
-
-      (
-        set -e
-        dnf update -y
-        dnf install -y amazon-ssm-agent aws-cfn-bootstrap ca-certificates curl git vim
-
-        systemctl enable amazon-ssm-agent
-        systemctl start amazon-ssm-agent
-
-        if systemctl list-unit-files --type=service | grep -q '^ecs\.service'; then
-          systemctl enable ecs
-          systemctl start ecs
-        fi
-      ) || user_data_exit_code=$?
+      set -euox pipefail
+      dnf -y upgrade && dnf -y autoremove && dnf -y clean all
     NoEcho: true
 Conditions:
   HasEc2SubnetIdOverride:
@@ -155,20 +142,7 @@ Resources:
             Encrypted: true
             DeleteOnTermination: true
       UserData:
-        Fn::Base64:
-          Fn::Join:
-            - ''
-            - - !Ref Ec2UserData
-              - |
-
-              - 'user_data_exit_code="${user_data_exit_code:-$?}"'
-              - |+
-
-              - '/opt/aws/bin/cfn-signal --exit-code "$user_data_exit_code" --stack '
-              - !Ref AWS::StackName
-              - ' --resource Ec2Instance --region '
-              - !Ref AWS::Region
-              - |+
+        Fn::Base64: !Ref Ec2UserData
       Tags:
         - Key: Name
           Value: !Sub "${SystemName}-${EnvType}-ec2-linux-instance"
