@@ -4,10 +4,6 @@ Description: >-
   CloudFormation template to launch an Amazon ECS-optimized Linux EC2 instance
   using existing networking resources and an existing IAM instance profile
   imported from the companion stacks by default.
-  The instance is accessible via AWS Systems Manager Session Manager
-  and uses a shell UserData script for first-boot bootstrap.
-  Explicit resource overrides and a custom UserData script can optionally
-  be supplied at deploy time.
 Parameters:
   SystemName:
     Description: System name used for resource naming and tagging
@@ -80,7 +76,13 @@ Parameters:
     Default: |
       #!/bin/bash
       set -euox pipefail
-      dnf -y upgrade && dnf -y autoremove && dnf -y clean all
+      for i in {1..10}; do
+        if dnf -y upgrade && dnf -y autoremove && dnf -y clean all; then
+          exit 0
+        else
+          sleep $((2 ** i))
+        fi
+      done
     NoEcho: true
 Conditions:
   HasEc2SubnetIdOverride:
