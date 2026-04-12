@@ -139,7 +139,7 @@ Resources:
             DeleteOnTermination: true
       UserData: !If
         - HasEc2UserDataOverride
-        - !Ref Ec2UserData
+        - Fn::Base64: !Ref Ec2UserData
         - !Ref AWS::NoValue
       Tags:
         - Key: Name
